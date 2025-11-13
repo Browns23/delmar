@@ -33,7 +33,7 @@ def extract_invoice_id(filename: str):
 
 
 st.set_page_config(page_title="Delmar Invoice Processor – Freight A→Z", layout="wide")
-st.title("📦 Invoice Processor – Freight A→Z")
+st.title("📦 Delmar Invoice Processor – Freight A→Z")
 st.caption("Invoice Date · CAD aware · kg/cbm chargeable (multi-PDF uploader)")
 
 with st.expander("How it works", expanded=False):
