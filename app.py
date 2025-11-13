@@ -32,7 +32,7 @@ def extract_invoice_id(filename: str):
     return match.group(1) if match else filename   # fallback to entire filename
 
 
-st.set_page_config(page_title="Invoice Processor – Freight A→Z", layout="wide")
+st.set_page_config(page_title="Delmar Invoice Processor – Freight A→Z", layout="wide")
 st.title("📦 Invoice Processor – Freight A→Z")
 st.caption("Invoice Date · CAD aware · kg/cbm chargeable (multi-PDF uploader)")
 
