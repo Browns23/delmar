@@ -21,14 +21,14 @@ HEADERS = [
     "Freight_Mode", "Freight_Rate",
 ]
 
-# ── regex patterns (ported from your watcher script) ─────────
+# ── regex patterns ───────────────────────────────────────────
 SHIPPER_PAT   = re.compile(r"SHIPPER\s+(.+?)\s+CONSIGNEE", re.I | re.S)
 INVOICE_DATE  = re.compile(r"INVOICE\s+DATE\s+([0-9]{1,2}[A-Za-z\- ]+[0-9]{2,4})", re.I)
 
 ROW_PAT = re.compile(
-    r"([\d,.]+)\s*(KG|KGS?|LB)\s+"          # weight
-    r"([\d,.]+)\s*(M3|CBM)\s+"              # volume
-    r"([\d,.]+)\s*(KG|KGS?|LB|M3|CBM)\s+"   # chargeable any unit
+    r"([\d,.]+)\s*(KG|KGS?|LB)\s+"
+    r"([\d,.]+)\s*(M3|CBM)\s+"
+    r"([\d,.]+)\s*(KG|KGS?|LB|M3|CBM)\s+"
     r"(\d+)\s*CTN", re.I)
 
 KG_PAT  = re.compile(r"([\d,.]+)\s*KG", re.I)
@@ -63,7 +63,7 @@ def _extract_full_text(pdf_bytes: bytes) -> str:
 def parse_pdf_bytes(pdf_bytes: bytes, filename: str = "") -> Dict[str, Any]:
     """
     Parse a single PDF (bytes) and return a row dict with the expected HEADERS.
-    Never raises; on failure returns a minimal row with just Timestamp/Filename.
+    Never raises; on failure returns a minimal row.
     """
     try:
         full = _extract_full_text(pdf_bytes)
@@ -74,7 +74,7 @@ def parse_pdf_bytes(pdf_bytes: bytes, filename: str = "") -> Dict[str, Any]:
         if m:
             inv_date = m.group(1).strip()
 
-        # Currency (default USD, CAD heuristics preserved)
+        # Currency detection
         currency = "USD"
         m = SUBTOTAL_PAT.search(full)
         if m and m.group(1):
@@ -97,78 +97,85 @@ def parse_pdf_bytes(pdf_bytes: bytes, filename: str = "") -> Dict[str, Any]:
             shipper = re.sub(r"\s+", " ", m.group(1).strip())
 
         # Defaults
-        w_kg = v_m3 = c_kg = c_cbm = packs = subtotal = mode = amount = None
+        w_kg = v_m3 = c_kg = c_cbm = pieces = subtotal = mode = rate = None
 
-        # Detail row (weight, volume, chargeable, cartons)
+        # Main row extraction
         m = ROW_PAT.search(full)
         if m:
-            w_val, w_unit, v_val, _, c_val, c_unit, packs = m.groups()
+            w_val, w_unit, v_val, _, c_val, c_unit, pieces = m.groups()
             w_kg  = _to_kg(_f(w_val), w_unit)
             v_m3  = _f(v_val)
-            packs = int(packs)
+            pieces = int(pieces)
+
             if c_unit.lower() in ("kg", "kgs", "lb"):
                 c_kg  = _to_kg(_f(c_val), c_unit)
             else:
                 c_cbm = _f(c_val)
+
         else:
             m = KG_PAT.search(full)
             if m: w_kg = _f(m.group(1))
             m = M3_PAT.search(full)
             if m: v_m3 = _f(m.group(1))
             m = CTN_PAT.search(full)
-            if m: packs = int(m.group(1))
+            if m: pieces = int(m.group(1))
 
-        # CHARGEABLE line override
+        # CHARGEABLE
         m = CHARGEABLE_LINE.search(full)
         if m:
             val, unit = m.groups()
-            val = _f(val); unit = unit.lower()
+            val = _f(val)
+            unit = unit.lower()
             if unit in ("kg", "kgs", "lb"):
-                c_kg, c_cbm = _to_kg(val, unit), None
+                c_kg = _to_kg(val, unit)
+                c_cbm = None
             else:
-                c_cbm, c_kg = val, None
+                c_cbm = val
+                c_kg = None
 
-        # Money
+        # Subtotal
         m = SUBTOTAL_PAT.search(full)
         if m:
             subtotal = _f(m.group(2))
 
+        # Freight (Air/Ocean)
         for pat in (AIR_FRT_PAT, OCEAN_FRT_PAT):
             m = pat.search(full)
             if m:
-                mode   = "Air" if pat is AIR_FRT_PAT else "Ocean"
-                amount = _f(m.group(2))
+                mode = "Air" if pat is AIR_FRT_PAT else "Ocean"
+                rate = _f(m.group(2))
                 break
 
         return {
-            "Timestamp"       : datetime.now(),
-            "Filename"        : filename,
-            "Invoice_Date"    : inv_date,
-            "Currency"        : currency,
-            "Shipper"         : shipper,
-            "Weight_KG"       : w_kg,
-            "Volume_M3"       : v_m3,
-            "Chargeable_KG"   : c_kg,
-            "Chargeable_CBM"  : c_cbm,
-            "Packages"        : packs,
-            "Subtotal"        : subtotal,
-            "Freight_Mode"    : mode,
-            "Freight_Amount"  : amount,
+            "Timestamp": datetime.now(),
+            "Filename": filename,
+            "Invoice_Date": inv_date,
+            "Currency": currency,
+            "Shipper": shipper,
+            "Weight_KG": w_kg,
+            "Volume_M3": v_m3,
+            "Chargeable_KG": c_kg,
+            "Chargeable_CBM": c_cbm,
+            "Pieces": pieces,
+            "Subtotal": subtotal,
+            "Freight_Mode": mode,
+            "Freight_Rate": rate,
         }
+
     except Exception:
-        # Return minimal row so the app can still proceed
         return {
-            "Timestamp"       : datetime.now(),
-            "Filename"        : filename,
-            "Invoice_Date"    : None,
-            "Currency"        : None,
-            "Shipper"         : None,
-            "Weight_KG"       : None,
-            "Volume_M3"       : None,
-            "Chargeable_KG"   : None,
-            "Chargeable_CBM"  : None,
-            "Packages"        : None,
-            "Subtotal"        : None,
-            "Freight_Mode"    : None,
-            "Freight_Amount"  : None,
+            "Timestamp": datetime.now(),
+            "Filename": filename,
+            "Invoice_Date": None,
+            "Currency": None,
+            "Shipper": None,
+            "Weight_KG": None,
+            "Volume_M3": None,
+            "Chargeable_KG": None,
+            "Chargeable_CBM": None,
+            "Pieces": None,
+            "Subtotal": None,
+            "Freight_Mode": None,
+            "Freight_Rate": None,
         }
+
