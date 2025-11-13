@@ -17,8 +17,8 @@ HEADERS = [
     "Invoice_Date", "Currency", "Shipper",
     "Weight_KG", "Volume_M3",
     "Chargeable_KG", "Chargeable_CBM",
-    "Packages", "Subtotal",
-    "Freight_Mode", "Freight_Amount",
+    "Pieces", "Subtotal",
+    "Freight_Mode", "Freight_Rate",
 ]
 
 # ── regex patterns (ported from your watcher script) ─────────
