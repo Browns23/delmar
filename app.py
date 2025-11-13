@@ -84,8 +84,8 @@ if uploaded:
                     "Filename": invoice_id,
                     "Invoice_Date": None, "Currency": None, "Shipper": None,
                     "Weight_KG": None, "Volume_M3": None, "Chargeable_KG": None,
-                    "Chargeable_CBM": None, "Packages": None, "Subtotal": None,
-                    "Freight_Mode": None, "Freight_Amount": None
+                    "Chargeable_CBM": None, "Pieces": None, "Subtotal": None,
+                    "Freight_Mode": None, "Freight_Rate": None
                 })
                 log.append(f"✗ {invoice_id} | error: {e}")
 
