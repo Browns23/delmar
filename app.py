@@ -16,22 +16,32 @@ from parse_logic import parse_pdf_bytes, HEADERS
 
 
 # ------------------------------
-# Extract invoice ID (SY0050227, SY0051432A etc.)
+# Helper: extract invoice ID (SY0050227, SY0051432A, etc.)
 # ------------------------------
 def extract_invoice_id(filename: str):
+    """
+    Extracts invoice IDs like:
+    - SY0050227
+    - SY0051432A  (letter must NOT be dropped)
+    
+    Works on filenames like:
+    - invoice-SY0051432A.pdf
+    - SY0050227.PDF
+    """
     match = re.search(r"(SY\d+[A-Z]?)", filename.upper())
-    return match.group(1) if match else filename
+    return match.group(1) if match else filename   # fallback to entire filename
 
 
-st.set_page_config(page_title="Delmar Invoice Processor – Freight A→Z", layout="wide")
-st.title("📦 Delmar Invoice Processor – Freight A→Z")
+st.set_page_config(page_title="Invoice Processor – Freight A→Z", layout="wide")
+st.title("📦 Invoice Processor – Freight A→Z")
 st.caption("Invoice Date · CAD aware · kg/cbm chargeable (multi-PDF uploader)")
 
 with st.expander("How it works", expanded=False):
     st.markdown(
-        "- Upload one or more **PDF invoices**.\n"
-        "- The app extracts weight, volume, chargeable KG/CBM, Pieces, currency, subtotal, freight_mode, freight_rate.\n"
-        "- Review preview and download Excel."
+        "- Upload one or more **PDF** invoices.\n"
+        "- The app parses weights, volume, chargeable (KG/CBM), cartons, currency, subtotal, and freight lines (Air/Ocean).\n"
+        "- Review the extracted table.\n"
+        "- Click **Download Excel** to export `Invoice_Summary.xlsx`."
     )
 
 uploaded = st.file_uploader("Upload invoice PDFs", type=["pdf"], accept_multiple_files=True)
@@ -43,52 +53,56 @@ if uploaded:
     with st.spinner("Parsing invoices..."):
         for f in uploaded:
             try:
-                file_bytes = f.read()
+                data = f.read()
+
+                # 🔥 Extract clean invoice ID (supports ending letter)
                 invoice_id = extract_invoice_id(f.name)
 
-                # Parse
-                row = parse_pdf_bytes(file_bytes, filename=invoice_id)
+                # Pass invoice_id instead of full filename
+                row = parse_pdf_bytes(data, filename=invoice_id)
 
-                # Force filename cleanup
+                # Overwrite Filename field to ensure only clean ID is kept
                 row["Filename"] = invoice_id
+
                 rows.append(row)
 
+                # Logging
                 log.append(
-                    f"✓ {invoice_id} | {row.get('Invoice_Date') or '—'} | "
-                    f"{row.get('Currency') or '—'} | {row.get('Freight_Mode') or '—'} "
-                    f"{('(' + str(row.get('Freight_Rate')) + ')') if row.get('Freight_Rate') else ''}"
+                    f"✓ {invoice_id} | "
+                    f"{row.get('Invoice_Date') or '—'} | "
+                    f"{row.get('Currency') or '—'} | "
+                    f"{row.get('Freight_Mode') or '—'} "
+                    f"{('(' + str(row.get('Freight_Amount')) + ')') if row.get('Freight_Amount') is not None else ''}"
                 )
 
             except Exception as e:
+                # use clean ID even on fail
                 invoice_id = extract_invoice_id(f.name)
+
                 rows.append({
                     "Timestamp": datetime.now(),
                     "Filename": invoice_id,
                     "Invoice_Date": None, "Currency": None, "Shipper": None,
                     "Weight_KG": None, "Volume_M3": None, "Chargeable_KG": None,
-                    "Chargeable_CBM": None, "Pieces": None, "Subtotal": None,
-                    "Freight_Mode": None, "Freight_Rate": None
+                    "Chargeable_CBM": None, "Packages": None, "Subtotal": None,
+                    "Freight_Mode": None, "Freight_Amount": None
                 })
                 log.append(f"✗ {invoice_id} | error: {e}")
 
-    # -------------------- Build DataFrame --------------------
+    # Build DataFrame and enforce column order
     df = pd.DataFrame(rows)
-
-    # Ensure all headers exist
     for col in HEADERS:
         if col not in df.columns:
             df[col] = None
-
     df = df[HEADERS]
 
-    # Preview
     st.subheader("Preview")
     st.dataframe(df, use_container_width=True)
 
     with st.expander("Parse log"):
         st.write("\n".join(log))
 
-    # -------------------- Build Excel --------------------
+    # Build Excel in-memory
     wb = Workbook()
     ws = wb.active
     ws.title = "Invoice_Summary"
@@ -101,11 +115,15 @@ if uploaded:
         max_len = 0
         col_letter = col[0].column_letter
         for cell in col:
-            if cell.value:
+            try:
+                if cell.value is None:
+                    continue
                 max_len = max(max_len, len(str(cell.value)))
+            except Exception:
+                pass
         ws.column_dimensions[col_letter].width = min(max_len + 2, 60)
 
-    # Save to memory
+    # Save Excel to memory buffer
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -114,5 +132,11 @@ if uploaded:
         label="⬇️ Download Excel (Invoice_Summary.xlsx)",
         data=buf,
         file_name="Invoice_Summary.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+else:
+    st.info("Upload one or more **PDF** files to begin.")
+
+
 
